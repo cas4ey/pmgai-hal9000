@@ -11,6 +11,7 @@ CONSOLE_PREFIX = '> '
 CONSOLE_LINEHEIGHT = 40.0
 CONSOLE_LINEOFFSET = 16.0
 CONSOLE_MARGIN = 16.0
+MAX_BUFFER_SIZE = 64
 
 
 class TextEvent(vispy.util.event.Event):
@@ -67,6 +68,9 @@ class TerminalWindow(object):
         self.entry_offset = CONSOLE_LINEOFFSET - CONSOLE_LINEHEIGHT / 2 + self.canvas.size[1] 
         self.entry_blink = 0
         self.entries = []
+        self.text_log = ['']
+        self.log_index = 0
+        self.log_message_modified = False
 
         self.log(CONSOLE_PREFIX, color='#1463A3')
 
@@ -117,16 +121,39 @@ class TerminalWindow(object):
             self.on_key_char(evt.text)
 
         c = evt.key
-        if c.name == 'Enter' and self.text_buffer != '':
+        if c.name == 'Enter' and self.text_buffer:
             if self.text_buffer.startswith('/'):
                 self.events.user_command(TextEvent(self.text_buffer[1:]))
             else:
                 self.log(self.text_buffer, align='left')
                 self.events.user_input(TextEvent(self.text_buffer))
+            if self.log_message_modified or self.log_index != -1:
+                self.text_log.append(self.text_buffer)
+                if len(self.text_log) > MAX_BUFFER_SIZE:
+                    self.text_log.pop(1)
+            self.log_index = 0
             self.text_buffer = ''
+            self.log_message_modified = False
 
         if c.name == 'Backspace':
+            if self.text_buffer:
+                self.log_message_modified = True
             self.text_buffer = self.text_buffer[:-1]
+
+        elif c.name == 'Up':
+            min_index = 1 - len(self.text_log)
+            if self.log_index > min_index:
+                self.log_index -= 1
+                self.text_buffer = self.text_log[self.log_index]
+                self.log_message_modified = False
+        elif c.name == 'Down':
+            self.log_message_modified = False
+            if self.log_index < 0:
+                self.log_index += 1
+                self.text_buffer = self.text_log[self.log_index]
+                self.log_message_modified = False
+        else:
+            self.log_message_modified = True
 
         self.show_input(self.text_buffer)       
 
