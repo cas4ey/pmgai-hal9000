@@ -8,7 +8,8 @@ import vispy                    # Main application support.
 import window                   # Terminal input and display.
 
 from datetime import datetime
-import random
+
+import nltk  # Chat-bot
 
 
 class HAL9000(object):
@@ -19,43 +20,34 @@ class HAL9000(object):
         "Good ${daytime}."
     ]
 
-    _error_replies = [
-        'I\'m sorry, I can\'t understand you...',
-        'I can\'t recognize your request.'
+    _responses = [
+        (r'^(hal|hey you)?[\.\!\s]$', ['Yes?', 'HAL9000 is listening.', '...', 'What?']),
+        (r'(hi|hello|hey)[\,\s\.\!]*', _greetings),
+        (r'good (morning|day|evening|night)', _greetings),
+        (r'where am i\?*', ['You are in the ${location} now.']),
+        (r'', ['I\'m sorry, I can\'t understand you...',
+               'I can\'t recognize your request. Please, rephrase your question.',
+               'What?..'
+               ])
     ]
-
-    _greetings_words = (
-        'hi',
-        'hello',
-        'hey',
-        'good day',
-        'good morning',
-        'good night',
-        'good evening'
-    )
     
     def __init__(self, terminal):
         """Constructor for the agent, stores references to systems and initializes internal memory.
         """
         self.terminal = terminal
-        self.location = 'unknown'
-        self._last_greeting = -1
-        self._last_unknown_reply = -1
+        self.location = 'start location'
+        self._last_input = ''
+        self._chatbot = nltk.chat.Chat(HAL9000._responses, nltk.chat.util.reflections)
 
     def on_input(self, evt):
         """Called when user types anything in the terminal, connected via event.
         """
-        player_input = evt.text.lower()
-        if any(s in player_input for s in HAL9000._greetings_words):
-            output, self._last_greeting = self._choose_random_reply(HAL9000._greetings, self._last_greeting)
-        elif 'where am i' in player_input:
-            if self.location != 'unknown':
-                output = 'You are in {} now.'.format(self.location)
-            else:
-                output = 'Hmm... I don\'t know where are you...'
-        else:
-            output, self._last_unknown_reply = self._choose_random_reply(HAL9000._error_replies,
-                                                                         self._last_unknown_reply)
+        self._last_input = evt.text
+        output = self._chatbot.respond(self._last_input.lower())
+        if '${daytime}' in output:
+            output = output.replace('${daytime}', self._get_current_day_time_string())
+        if '${location}' in output:
+            output = output.replace('${location}', self.location)
         self.terminal.log(output, align='right', color='#00805A')
 
     def on_command(self, evt):
@@ -69,7 +61,9 @@ class HAL9000(object):
             if new_location != self.location:
                 self.location = new_location
                 self.terminal.log('', align='center', color='#404040')
-                self.terminal.log('\u2014 Now in the {}. \u2014'.format(self.location), align='center', color='#404040')
+                self.terminal.log('\u2014 Now in the {}. \u2014'.format(new_location), align='center', color='#404040')
+            else:
+                self.terminal.log('You are already in the {}!'.format(new_location), align='right', color='#00805A')
 
         else:
             self.terminal.log('Command `{}` unknown.'.format(evt.text), align='left', color='#ff3000')    
@@ -79,19 +73,6 @@ class HAL9000(object):
         """Main update called once per second via the timer.
         """
         pass
-
-    @staticmethod
-    def _choose_random_reply(possible_replies, last_reply=None):
-        replies = list(range(len(possible_replies)))
-        if last_reply is not None and len(replies) > 2 and last_reply in replies:
-            replies.pop(last_reply)
-        reply_index = random.choice(replies)
-        if reply_index >= len(possible_replies) or reply_index < 0:
-            reply_index = 0
-        reply = possible_replies[reply_index]
-        if '${daytime}' in reply:
-            reply = reply.replace('${daytime}', HAL9000._get_current_day_time_string())
-        return reply, reply_index
 
     @staticmethod
     def _get_current_day_time_string():
