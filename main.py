@@ -20,15 +20,24 @@ class HAL9000(object):
         "Good ${daytime}."
     ]
 
+    _default_responses = [
+        'I\'m sorry, I can\'t understand you...',
+        'I can\'t recognize your request. Please, rephrase your question.',
+        'Yeah, that\'s fine... Stop mumbling, please!',
+        'Can you be more exact in your requests?',
+        'Please, remember that I am an Artificial Intelligence! And sometimes I can be more artificial than '
+        'intelligent...'
+    ]
+
     _responses = [
-        (r'^(hal|hey you)?[\.\!\s]$', ['Yes?', 'HAL9000 is listening.', '...', 'What?']),
+        (r'^(hal|hey you)?[\.\!\s]$', ['Yes?', 'HAL9000 is listening.', 'HAL on line.', 'What?']),
         (r'(hi|hello|hey)[\,\s\.\!]*', _greetings),
         (r'good (morning|day|evening|night)', _greetings),
         (r'where am i\?*', ['You are in the ${location} now.']),
-        (r'', ['I\'m sorry, I can\'t understand you...',
-               'I can\'t recognize your request. Please, rephrase your question.',
-               'What?..'
-               ])
+        (r'(ok|o\.k\.|fine|excellent|cool)', ['Good.', 'Do you think so?', 'Awesome.', 'Perfect.']),
+        (r'(really|are you serious)\?', ['Of course!', 'Sure!', 'Yes!', 'Absolutely.']),
+        (r'([\w\s]+)', ['What do you mean by saying \'%1\'?'] + _default_responses),
+        (r'', _default_responses)
     ]
     
     def __init__(self, terminal):
@@ -43,7 +52,9 @@ class HAL9000(object):
         """Called when user types anything in the terminal, connected via event.
         """
         self._last_input = evt.text
-        output = self._chatbot.respond(self._last_input.lower())
+        player_input = self._last_input.lower()
+        player_input = player_input.replace('i\'m', 'i am')
+        output = self._chatbot.respond(player_input)
         if '${daytime}' in output:
             output = output.replace('${daytime}', self._get_current_day_time_string())
         if '${location}' in output:
