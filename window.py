@@ -60,6 +60,7 @@ class TerminalWindow(object):
         self.old_size = self.canvas.size
         self.canvas.events.resize.connect(self.on_resize)
         self.canvas.events.key_press.connect(self.on_key_press)
+        self.canvas.events.key_release.connect(self.on_key_release)
 
     def _create_terminal(self):
         """Setup everything that's necessary for processing key events and the text.
@@ -71,12 +72,24 @@ class TerminalWindow(object):
         self.text_log = ['']
         self.log_index = 0
         self.log_message_modified = False
+        self._pressed_buttons = {}
+
+        self._key_handlers = {
+            'Enter': self._on_press_enter,
+            'Backspace': self._on_press_backspace,
+            'Up': self._on_press_up,
+            'Down': self._on_press_down
+        }
 
         self.log(CONSOLE_PREFIX, color='#1463A3')
 
         timer = vispy.app.Timer(interval=1.0 / 3.0)
         timer.connect(self.on_blink)
         timer.start()
+
+        timer2 = vispy.app.Timer(interval=0.025)
+        timer2.connect(self.on_repeat_keys)
+        timer2.start()
 
     def scroll(self, height):
         self.widget.transform.translate((0.0, -height))
@@ -117,11 +130,27 @@ class TerminalWindow(object):
         self.entries[0].update()
 
     def on_key_press(self, evt):
+        if evt.key.name not in self._pressed_buttons:
+            self._pressed_buttons[evt.key.name] = [evt, 0.0]
+
+        self._key_press_handler(evt)
+
+    def _key_press_handler(self, evt):
         if evt.text:
             self.on_key_char(evt.text)
 
         c = evt.key
-        if c.name == 'Enter' and self.text_buffer:
+        handler = self._key_handlers.get(c.name, self._on_press_any)
+        handler()
+
+        self.show_input(self.text_buffer)
+
+    def on_key_release(self, evt):
+        if evt.key.name in self._pressed_buttons:
+            del self._pressed_buttons[evt.key.name]
+
+    def _on_press_enter(self):
+        if self.text_buffer:
             if self.text_buffer.startswith('/'):
                 self.events.user_command(TextEvent(self.text_buffer[1:]))
             else:
@@ -135,27 +164,27 @@ class TerminalWindow(object):
             self.text_buffer = ''
             self.log_message_modified = False
 
-        if c.name == 'Backspace':
-            if self.text_buffer:
-                self.log_message_modified = True
-            self.text_buffer = self.text_buffer[:-1]
-
-        elif c.name == 'Up':
-            min_index = 1 - len(self.text_log)
-            if self.log_index > min_index:
-                self.log_index -= 1
-                self.text_buffer = self.text_log[self.log_index]
-                self.log_message_modified = False
-        elif c.name == 'Down':
-            self.log_message_modified = False
-            if self.log_index < 0:
-                self.log_index += 1
-                self.text_buffer = self.text_log[self.log_index]
-                self.log_message_modified = False
-        else:
+    def _on_press_backspace(self):
+        if self.text_buffer:
             self.log_message_modified = True
+        self.text_buffer = self.text_buffer[:-1]
 
-        self.show_input(self.text_buffer)       
+    def _on_press_up(self):
+        min_index = 1 - len(self.text_log)
+        if self.log_index > min_index:
+            self.log_index -= 1
+            self.text_buffer = self.text_log[self.log_index]
+            self.log_message_modified = False
+
+    def _on_press_down(self):
+        self.log_message_modified = False
+        if self.log_index < 0:
+            self.log_index += 1
+            self.text_buffer = self.text_log[self.log_index]
+            self.log_message_modified = False
+
+    def _on_press_any(self):
+        self.log_message_modified = True
 
     def on_key_char(self, text):
         self.text_buffer += text
@@ -167,3 +196,9 @@ class TerminalWindow(object):
         if (self.entry_blink%2) == 1:
             self.show_input(self.text_buffer)
         self.entry_blink += 1
+
+    def on_repeat_keys(self, evt):
+        for _, v in self._pressed_buttons.items():
+            v[1] += evt.dt
+            if v[1] > 0.5:
+                self._key_press_handler(v[0])
