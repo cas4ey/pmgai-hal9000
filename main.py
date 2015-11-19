@@ -36,6 +36,12 @@ class HAL9000(object):
         (r'(hi|hello|hey)[\,\s\.\!]*', _greetings),
         (r'good (morning|day|evening|night)', _greetings),
         (r'where am i\?*', ['You are in the ${location} now.']),
+        (r'(open|please, open|please open)([\w\s]+)', ['${execute} open %2']),
+        (r'(close|please, close|please close)([\w\s]+)', ['${execute} close %2']),
+        (r'(where can i go|where to go)\?*', ['${execute} transitions']),
+        (r'(how can i get to the|how can i get to)([\w\s]+)\?', ['${execute} where %2']),
+        (r'(take me to the|take me to|go to the|go to|relocate to the|relocate to|i want to go to the|i want to go to|'
+         r'i want to get to the|i want to get to|get to the|get to)([\w\s]+)', ['${execute} goto %2']),
         (r'(ok|o\.k\.|fine|excellent|cool)', ['Good.', 'Do you think so?', 'Awesome.', 'Perfect.']),
         (r'(really|are you serious)\?', ['Of course!', 'Sure!', 'Yes!', 'Absolutely.']),
         (r'([\w\s]+)', ['What do you mean by saying \'%1\'?'] + _default_responses),
@@ -86,23 +92,34 @@ class HAL9000(object):
         """
         player_input = evt.text.lower().replace('i\'m', 'i am')
         output = self._chatbot.respond(player_input)
+
+        if '${execute}' in output:
+            output = output[11:]
+            self._execute_command(output)
+            return
+
         if '${daytime}' in output:
             output = output.replace('${daytime}', self._get_current_day_time_string())
+
         if '${location}' in output:
             output = output.replace('${location}', self._location.name())
+
         self._terminal.log(output, align='right', color='#00805A')
 
     def on_command(self, evt):
         """Called when user types a command starting with `/` also done via events.
         """
-        words = evt.text.split()
+        self._execute_command(evt.text)
+
+    def _execute_command(self, command):
+        words = command.split()
         if words and words[0] in self._commands:
             execute_command = self._commands[words[0]]
             attribute = ' '.join(words[1:]).lower()
             execute_command(attribute)
 
         else:
-            self._terminal.log('Command \'{}\' unknown.'.format(evt.text), align='left', color='#ff3000')
+            self._terminal.log('Command \'{}\' unknown.'.format(command), align='left', color='#ff3000')
             self._terminal.log("I'm afraid I can't do that.", align='right', color='#00805A')
 
     def update(self, _):
