@@ -11,6 +11,8 @@ from datetime import datetime
 
 import nltk  # Chat-bot
 
+from map import Map, DoorState
+
 
 class HAL9000(object):
 
@@ -43,23 +45,43 @@ class HAL9000(object):
     def __init__(self, terminal):
         """Constructor for the agent, stores references to systems and initializes internal memory.
         """
-        self.terminal = terminal
-        self.location = 'start location'
-        self._last_input = ''
+        self._terminal = terminal
+        self._map = Map()
+        self._create_map()
+        self._location = self._map.get_room('start location')
         self._chatbot = nltk.chat.Chat(HAL9000._responses, nltk.chat.util.reflections)
+
+    def _create_map(self):
+        self._map.add_rooms(('start location', 'main corridor', 'kitchen', 'store', 'command post', 'bathroom',
+                             'engineering module', 'ventilating trunk'))
+
+        self._map.add_door('gate 1', 'start location', 'main corridor')
+        self._map.add_door('engineering hatch', 'start location', 'engineering module')
+        self._map.add_door('vent flap 1', 'start location', 'ventilating trunk')
+
+        self._map.add_door('gate 2', 'main corridor', 'command post')
+        self._map.add_door('gate 3', 'main corridor', 'engineering module')
+        self._map.add_door('gate 4', 'main corridor', 'kitchen')
+        self._map.add_door('gate 5', 'main corridor', 'bathroom')
+
+        self._map.add_door('vent flap 2', 'ventilating trunk', 'command post')
+        self._map.add_door('vent flap 3', 'ventilating trunk', 'engineering module')
+        self._map.add_door('vent flap 4', 'ventilating trunk', 'kitchen')
+        self._map.add_door('vent flap 5', 'ventilating trunk', 'bathroom')
+        self._map.add_door('vent flap 6', 'ventilating trunk', 'store')
+
+        self._map.add_door('small door', 'kitchen', 'store')
 
     def on_input(self, evt):
         """Called when user types anything in the terminal, connected via event.
         """
-        self._last_input = evt.text
-        player_input = self._last_input.lower()
-        player_input = player_input.replace('i\'m', 'i am')
+        player_input = evt.text.lower().replace('i\'m', 'i am')
         output = self._chatbot.respond(player_input)
         if '${daytime}' in output:
             output = output.replace('${daytime}', self._get_current_day_time_string())
         if '${location}' in output:
-            output = output.replace('${location}', self.location)
-        self.terminal.log(output, align='right', color='#00805A')
+            output = output.replace('${location}', self._location.name())
+        self._terminal.log(output, align='right', color='#00805A')
 
     def on_command(self, evt):
         """Called when user types a command starting with `/` also done via events.
@@ -67,23 +89,119 @@ class HAL9000(object):
         if evt.text == 'quit':
             vispy.app.quit()
 
-        elif evt.text.startswith('relocate'):
-            new_location = evt.text[9:].lower()
-            if new_location != self.location:
-                self.location = new_location
-                self.terminal.log('', align='center', color='#404040')
-                self.terminal.log('\u2014 Now in the {}. \u2014'.format(new_location), align='center', color='#404040')
+        elif evt.text.startswith('where'):
+            where = evt.text[6:].lower()
+            if not where:
+                output = self._chatbot.respond('where am i?').replace('${location}', self._location.name())
+                self._terminal.log(output, align='right', color='#00805A')
+
+            if where in self._location.get_doors():
+                door = self._map.get_door(where)
+                to = []
+                for room_name in door.between():
+                    if room_name != self._location.name():
+                        to.append(room_name)
+                self._terminal.log('{} is leading to the {}'.format(where[:1].upper() + where[1:], ', '.join(to)),
+                                   align='right', color='#00805A')
+
+            elif where in self._location.possible_transitions():
+                doors = self._location.possible_transitions()[where]
+                self._terminal.log('You can get to the {} through {}'.format(where, ', '.join(doors)),
+                                   align='right', color='#00805A')
+
+            elif where == self._location.name():
+                self._print_possible_transitions()
+
             else:
-                self.terminal.log('You are already in the {}!'.format(new_location), align='right', color='#00805A')
+                self._terminal.log('Hm... There is no {} near the {}.'.format(where, self._location.name()),
+                                   align='right', color='#00805A')
+
+        elif evt.text.startswith('transitions'):
+            self._print_possible_transitions()
+
+        elif evt.text.startswith('goto'):
+            self._try_to_relocate(evt.text[5:].lower())
+
+        elif evt.text.startswith('relocate'):
+            self._try_to_relocate(evt.text[9:].lower())
+
+        elif evt.text.startswith('open'):
+            self._try_to_operate_door(evt.text[5:].lower(), DoorState.OPEN)
+
+        elif evt.text.startswith('close'):
+            self._try_to_operate_door(evt.text[6:].lower(), DoorState.CLOSED)
 
         else:
-            self.terminal.log('Command `{}` unknown.'.format(evt.text), align='left', color='#ff3000')    
-            self.terminal.log("I'm afraid I can't do that.", align='right', color='#00805A')
+            self._terminal.log('Command \'{}\' unknown.'.format(evt.text), align='left', color='#ff3000')
+            self._terminal.log("I'm afraid I can't do that.", align='right', color='#00805A')
 
     def update(self, _):
         """Main update called once per second via the timer.
         """
         pass
+
+    def _print_possible_transitions(self):
+        self._terminal.log('From {} you can go:'.format(self._location.name()), align='right', color='#00805A')
+        for room_name, doors in self._location.possible_transitions().items():
+            self._terminal.log('- to the {} through {}.'.format(room_name, ', '.join(doors)), align='right',
+                               color='#00805A')
+
+    def _try_to_relocate(self, location_name):
+        if not location_name:
+            self._terminal.log('Where do you want to go?', align='right', color='#00805A')
+            for room_name in self._location.possible_transitions():
+                self._terminal.log('- {}.'.format(room_name), align='right', color='#00805A')
+            return
+
+        new_location = self._map.get_room(location_name)
+        if new_location is None:
+            self._terminal.log('Location \'{}\' unknown.'.format(location_name), align='left', color='#ff3000')
+            self._terminal.log('There is no {} on the ship.'.format(location_name), align='right', color='#00805A')
+
+        elif location_name != self._location.name():
+            doors = self._location.get_doors(location_name)
+            if doors:
+                for door_name in doors:
+                    door = self._map.get_door(door_name)
+                    if door.state() == DoorState.OPEN:
+                        self._location = new_location
+                        self._terminal.log('', align='center', color='#404040')
+                        self._terminal.log('\u2014 Now in the {}. \u2014'.format(location_name), align='center',
+                                           color='#404040')
+                        return
+                self._terminal.log('I\'m afraid all doors to the {} are closed.'.format(location_name), align='right',
+                                   color='#00805A')
+                self._terminal.log('You have to open one of these doors: {}'.format(', '.join(doors)), align='right',
+                                   color='#00805A')
+
+            else:
+                self._terminal.log('I\'m afraid you can\'t relocate to the {} from your current location.'
+                                   .format(location_name), align='right', color='#00805A')
+
+        else:
+            self._terminal.log('You are already in the {}!'.format(location_name), align='right', color='#00805A')
+
+    def _try_to_operate_door(self, door_name, new_state):
+        doors = self._location.get_doors()
+        if not door_name:
+            self._terminal.log('Which door do you want to open?', align='right', color='#00805A')
+            for door_name in doors:
+                self._terminal.log('- {}.'.format(door_name), align='right', color='#00805A')
+            return
+
+        if door_name not in doors:
+            self._terminal.log('I\'m afraid there is no {} in the {}.'.format(door_name, self._location.name()),
+                               align='right', color='#00805A')
+            return
+
+        state_name = DoorState.to_str(new_state)
+        door = self._map.get_door(door_name)
+        if door.state() == new_state:
+            self._terminal.log('The {} already {}.'.format(door_name, state_name), align='right', color='#00805A')
+            return
+
+        self._terminal.log('The {} is now {}.'.format(door_name, state_name), align='right', color='#00805A')
+        door.set_state(new_state)
 
     @staticmethod
     def _get_current_day_time_string():
