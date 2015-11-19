@@ -50,6 +50,15 @@ class HAL9000(object):
         self._create_map()
         self._location = self._map.get_room('start location')
         self._chatbot = nltk.chat.Chat(HAL9000._responses, nltk.chat.util.reflections)
+        self._commands = {
+            'quit': lambda x: vispy.app.quit(),
+            'open': self._try_to_open_door,
+            'close': self._try_to_close_door,
+            'goto': self._try_to_relocate,
+            'relocate': self._try_to_relocate,
+            'where': self._print_where,
+            'transitions': self._print_possible_transitions
+        }
 
     def _create_map(self):
         self._map.add_rooms(('start location', 'main corridor', 'kitchen', 'store', 'command post', 'bathroom',
@@ -86,50 +95,11 @@ class HAL9000(object):
     def on_command(self, evt):
         """Called when user types a command starting with `/` also done via events.
         """
-        if evt.text == 'quit':
-            vispy.app.quit()
-
-        elif evt.text.startswith('where'):
-            where = evt.text[6:].lower()
-            if not where:
-                output = self._chatbot.respond('where am i?').replace('${location}', self._location.name())
-                self._terminal.log(output, align='right', color='#00805A')
-
-            if where in self._location.get_doors():
-                door = self._map.get_door(where)
-                to = []
-                for room_name in door.between():
-                    if room_name != self._location.name():
-                        to.append(room_name)
-                self._terminal.log('{} is leading to the {}'.format(where[:1].upper() + where[1:], ', '.join(to)),
-                                   align='right', color='#00805A')
-
-            elif where in self._location.possible_transitions():
-                doors = self._location.possible_transitions()[where]
-                self._terminal.log('You can get to the {} through {}'.format(where, ', '.join(doors)),
-                                   align='right', color='#00805A')
-
-            elif where == self._location.name():
-                self._print_possible_transitions()
-
-            else:
-                self._terminal.log('Hm... There is no {} near the {}.'.format(where, self._location.name()),
-                                   align='right', color='#00805A')
-
-        elif evt.text.startswith('transitions'):
-            self._print_possible_transitions()
-
-        elif evt.text.startswith('goto'):
-            self._try_to_relocate(evt.text[5:].lower())
-
-        elif evt.text.startswith('relocate'):
-            self._try_to_relocate(evt.text[9:].lower())
-
-        elif evt.text.startswith('open'):
-            self._try_to_operate_door(evt.text[5:].lower(), DoorState.OPEN)
-
-        elif evt.text.startswith('close'):
-            self._try_to_operate_door(evt.text[6:].lower(), DoorState.CLOSED)
+        words = evt.text.split()
+        if words and words[0] in self._commands:
+            execute_command = self._commands[words[0]]
+            attribute = ' '.join(words[1:]).lower()
+            execute_command(attribute)
 
         else:
             self._terminal.log('Command \'{}\' unknown.'.format(evt.text), align='left', color='#ff3000')
@@ -140,7 +110,36 @@ class HAL9000(object):
         """
         pass
 
-    def _print_possible_transitions(self):
+    def _print_where(self, where):
+        if not where:
+            output = self._chatbot.respond('where am i?').replace('${location}', self._location.name())
+            self._terminal.log(output, align='right', color='#00805A')
+            return
+
+        if where in self._location.get_doors():
+            door = self._map.get_door(where)
+            to = []
+            for room_name in door.between():
+                if room_name != self._location.name():
+                    to.append(room_name)
+            self._terminal.log('{} is leading to the {}'.format(where[:1].upper() + where[1:], ', '.join(to)),
+                               align='right', color='#00805A')
+            return
+
+        if where in self._location.possible_transitions():
+            doors = self._location.possible_transitions()[where]
+            self._terminal.log('You can get to the {} through {}'.format(where, ', '.join(doors)),
+                               align='right', color='#00805A')
+            return
+
+        if where == self._location.name():
+            self._print_possible_transitions()
+            return
+
+        self._terminal.log('Hm... There is no {} near the {}.'.format(where, self._location.name()),
+                           align='right', color='#00805A')
+
+    def _print_possible_transitions(self, _):
         self._terminal.log('From {} you can go:'.format(self._location.name()), align='right', color='#00805A')
         for room_name, doors in self._location.possible_transitions().items():
             self._terminal.log('- to the {} through {}.'.format(room_name, ', '.join(doors)), align='right',
@@ -180,6 +179,12 @@ class HAL9000(object):
 
         else:
             self._terminal.log('You are already in the {}!'.format(location_name), align='right', color='#00805A')
+
+    def _try_to_open_door(self, door_name):
+        self._try_to_operate_door(door_name, DoorState.OPEN)
+
+    def _try_to_close_door(self, door_name):
+        self._try_to_operate_door(door_name, DoorState.CLOSED)
 
     def _try_to_operate_door(self, door_name, new_state):
         doors = self._location.get_doors()
